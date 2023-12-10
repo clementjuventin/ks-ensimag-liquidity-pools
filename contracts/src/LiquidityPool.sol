@@ -19,6 +19,7 @@ contract LiquidityPool is ILiquidityPool {
 
     error InvalidToken();
     error SlippageTooHigh();
+    error InsuffisantLiquidity();
 
     constructor(
         string memory _name,
@@ -40,16 +41,18 @@ contract LiquidityPool is ILiquidityPool {
         if (_token != tokenA && _token != tokenB) {
             revert InvalidToken();
         }
+        if (aLiquidity == 0 || bLiquidity == 0) {
+            revert InsuffisantLiquidity();
+        }
 
         uint256 ratio = (aLiquidity * 1e18) / bLiquidity;
         uint256 next_ratio;
         if (_token == tokenA) {
             next_ratio = ((aLiquidity - _amount) * 1e18) / bLiquidity;
-            return (ratio - next_ratio) / 2 + next_ratio;
         } else {
-            next_ratio = (aLiquidity * 1e18) / (bLiquidity - _amount);
-            return (next_ratio - ratio) / 2 + ratio;
+            next_ratio = ((bLiquidity - _amount) * 1e18) / aLiquidity;
         }
+        return (ratio - next_ratio) / 2 + next_ratio;
     }
 
     function getLiquidity(
