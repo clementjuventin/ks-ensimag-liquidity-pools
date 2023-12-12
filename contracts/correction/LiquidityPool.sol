@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ILiquidityPool} from "./interfaces/ILiquidityPool.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
-import {console} from "forge-std/console.sol";
+import {ILiquidityPool} from "../src/interfaces/ILiquidityPool.sol";
+import {IERC20} from "../src/interfaces/IERC20.sol";
 
 contract LiquidityPool is ILiquidityPool {
     address tokenA;
@@ -78,7 +77,9 @@ contract LiquidityPool is ILiquidityPool {
         return (swapRate, slippage);
     }
 
-    function getLiquidity(address _token) external view returns (uint256) {
+    function getLiquidity(
+        address _token
+    ) external view override returns (uint256) {
         if (_token != tokenA && _token != tokenB) {
             revert InvalidToken();
         }
