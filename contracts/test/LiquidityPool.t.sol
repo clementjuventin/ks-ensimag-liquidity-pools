@@ -69,8 +69,12 @@ contract LiquidityPoolRateTest is LiquidityPoolTest {
     function test_rate_nominalCase_tokenA() external {
         initLiquidity();
 
-        // On s'attend à ce que le contrat retourne le bon ratio 1:1
-        assertEq(pool.rate(address(tokenA), 0), 1e18);
+        (uint256 rate, uint256 slippage) = pool.rate(address(tokenA), 0);
+
+        // On s'attend à ce que la rate soit de 1:1
+        assertEq(rate, 1e18);
+        // On s'attend à ce que le slippage soit de 0
+        assertEq(slippage, 0);
     }
 
     /**
@@ -79,8 +83,12 @@ contract LiquidityPoolRateTest is LiquidityPoolTest {
     function test_rate_nominalCase_tokenB() external {
         initLiquidity();
 
-        // On s'attend à ce que le contrat retourne le bon ratio
-        assertEq(pool.rate(address(tokenB), 0), 1e18);
+        (uint256 rate, uint256 slippage) = pool.rate(address(tokenA), 0);
+
+        // On s'attend à ce que la rate soit de 1:1
+        assertEq(rate, 1e18);
+        // On s'attend à ce que le slippage soit de 0
+        assertEq(slippage, 0);
     }
 
     /**
@@ -93,8 +101,12 @@ contract LiquidityPoolRateTest is LiquidityPoolTest {
         // On ajoute de la liquidité
         pool.addLiquidity(address(tokenA), amount);
 
+        (uint256 rate, uint256 slippage) = pool.rate(address(tokenA), 0);
+
         // On s'attend à ce que le contrat retourne le bon ratio (3:2)
-        assertEq(pool.rate(address(tokenA), 0), 3e18 / 2);
+        assertEq(rate, 1.5e18);
+        // On s'attend à ce que le slippage soit de 0
+        assertEq(slippage, 0);
     }
 
     /**
@@ -102,10 +114,15 @@ contract LiquidityPoolRateTest is LiquidityPoolTest {
     */
     function test_rate_nominalCase_tokenA_3() external {
         initLiquidity();
-        uint256 amount = 1e18 * 10;
+        uint256 amount = 1e18 * 1;
 
-        // On s'attend à ce que le contrat retourne le bon ratio (10:10 to 9:10 gives a rate of 9.5:10)
-        assertEq(pool.rate(address(tokenA), amount), 9.5e18 / 10);
+        (uint256 rate, uint256 slippage) = pool.rate(address(tokenA), amount);
+
+        // On s'attend à ce que le contrat retourne le bon ratio (1010101010101010101)
+        assertEq(rate, 1010101010101010101);
+        // On s'attend à ce que le slippage soit de ~1%
+        assert(slippage < 1e16 + 1e15);
+        assert(slippage > 1e16 - 1e15);
     }
 
     /**
@@ -113,10 +130,164 @@ contract LiquidityPoolRateTest is LiquidityPoolTest {
     */
     function test_rate_nominalCase_tokenB_3() external {
         initLiquidity();
+        uint256 amount = 1e18 * 1;
+
+        (uint256 rate, uint256 slippage) = pool.rate(address(tokenB), amount);
+
+        // On s'attend à ce que le contrat retourne le bon ratio (990099009900990099)
+        assertEq(rate, 990099009900990099);
+        // On s'attend à ce que le slippage soit de ~1%
+        assert(slippage < 1e16 + 1e15);
+        assert(slippage > 1e16 - 1e15);
+    }
+}
+
+contract LiquidityPoolSwapTest is LiquidityPoolTest {
+    error InvalidToken();
+    error SlippageTooHigh();
+    error InsuffisantLiquidity();
+
+    function initLiquidity() internal {
+        uint256 amount = 1e18 * 100;
+        // On approuve le contrat à dépenser les tokens
+        tokenA.approve(address(pool), amount);
+        tokenB.approve(address(pool), amount);
+
+        // On ajoute de la liquidité
+        pool.addLiquidity(address(tokenA), amount);
+        pool.addLiquidity(address(tokenB), amount);
+    }
+
+    /**
+     @notice Cette fonction teste le cas où le token n'est pas tokenA ou tokenB
+     */
+    function test_swap_shouldRevertIfNotTokenAOrTokenB() external {
+        address anotherToken = address(0x99);
+        // Avec cette fonction, on s'attend à ce que le contrat revert avec l'erreur InvalidToken
+        vm.expectRevert(InvalidToken.selector);
+        pool.swap(anotherToken, 1e18, 0);
+    }
+
+    /**
+     @notice Cette fonction teste le cas où le slippage est trop élevé
+     */
+    function test_swap_shouldRevertIfSlippageTooHigh() external {
+        initLiquidity();
+        uint256 amount = 1e18 * 10;
+        uint256 rate = 1e18; // rate = 1:1
+        uint256 slippage = 1e17; // slippage = 10%
+        // Mock la valeur de retour de la fonction rate
+        vm.mockCall(
+            address(pool),
+            abi.encodeWithSelector(pool.rate.selector),
+            abi.encode([rate, slippage])
+        );
+
+        ERC20(tokenA).approve(address(pool), amount);
+
+        // Avec cette fonction, on s'attend à ce que le contrat revert avec l'erreur SlippageTooHigh
+        vm.expectRevert(SlippageTooHigh.selector);
+        // On swap des tokens A pour des tokens B avec un slippage de 1%
+        pool.swap(address(tokenA), amount, 1e16);
+    }
+
+    /**
+     @notice Cette fonction teste le cas nominal de la fonction swap pour le tokenA
+     */
+    function test_swap_nominalCase_tokenA() external {
+        initLiquidity();
+        uint256 amount = 1e18 * 10;
+        uint256 rate = 1e18; // rate = 1:1
+        uint256 slippage = 1e16; // slippage = 1%
+        // Mock la valeur de retour de la fonction rate
+        vm.mockCall(
+            address(pool),
+            abi.encodeWithSelector(pool.rate.selector),
+            abi.encode([rate, slippage])
+        );
+
+        ERC20(tokenA).approve(address(pool), amount);
+
+        // On s'attend à ce que le contrat appelle la fonction transferFrom de tokenA
+        vm.expectCall(
+            address(tokenA),
+            abi.encodeCall(
+                tokenA.transferFrom,
+                (address(this), address(pool), amount)
+            ),
+            1
+        );
+        // On s'attend à ce que le contrat appelle la fonction transfer de tokenB
+        vm.expectCall(
+            address(tokenB),
+            abi.encodeCall(
+                tokenB.transfer,
+                (address(this), (amount * rate) / 1e18)
+            ),
+            1
+        );
+
+        // On swap des tokens A pour des tokens B avec un slippage de 3%
+        pool.swap(address(tokenA), amount, 1e16 * 3);
+    }
+
+    /**
+     @notice Cette fonction teste le cas nominal de la fonction swap pour le tokenB
+     */
+    function test_swap_nominalCase_tokenB() external {
+        initLiquidity();
+        uint256 amount = 1e18 * 10;
+        uint256 rate = 1e18; // rate = 1:1
+        uint256 slippage = 1e16; // slippage = 1%
+        // Mock la valeur de retour de la fonction rate
+        vm.mockCall(
+            address(pool),
+            abi.encodeWithSelector(pool.rate.selector),
+            abi.encode([rate, slippage])
+        );
+
+        ERC20(tokenB).approve(address(pool), amount);
+
+        // On s'attend à ce que le contrat appelle la fonction transferFrom de tokenB
+        vm.expectCall(
+            address(tokenB),
+            abi.encodeCall(
+                tokenB.transferFrom,
+                (address(this), address(pool), amount)
+            ),
+            1
+        );
+        // On s'attend à ce que le contrat appelle la fonction transfer de tokenA
+        vm.expectCall(
+            address(tokenA),
+            abi.encodeCall(
+                tokenA.transfer,
+                (address(this), (amount * rate) / 1e18)
+            ),
+            1
+        );
+
+        // On swap des tokens B pour des tokens A avec un slippage de 3%
+        pool.swap(address(tokenB), amount, 1e16 * 3);
+    }
+
+    /**
+     @notice Cette fonction devrait tenter de swap jusqu'à provoquer une erreur InsuffisantLiquidity
+     */
+    function test_swap_nominalCase_tokenA_2() external {
+        initLiquidity();
         uint256 amount = 1e18 * 10;
 
-        // On s'attend à ce que le contrat retourne le bon ratio (10:10 to 10:9 gives a rate of 10:9.5)
-        assertEq(pool.rate(address(tokenB), amount), 9.5e18 / 10);
+        ERC20(tokenA).approve(address(pool), amount * 100);
+        ERC20(tokenB).approve(address(pool), amount * 100);
+
+        // On swap des tokens A pour des tokens B avec un slippage de 3%
+        for (uint256 i = 0; i < 17; i++) {
+            pool.swap(address(tokenA), amount, 1e18 * 10000);
+        }
+
+        vm.expectRevert(InsuffisantLiquidity.selector);
+        pool.swap(address(tokenA), amount, 1e18 * 10000);
     }
 }
 

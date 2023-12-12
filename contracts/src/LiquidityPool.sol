@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {ILiquidityPool} from "./interfaces/ILiquidityPool.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
+import {console} from "forge-std/console.sol";
 
 contract LiquidityPool is ILiquidityPool {
     address tokenA;
@@ -37,7 +38,7 @@ contract LiquidityPool is ILiquidityPool {
     function rate(
         address _token,
         uint256 _amount
-    ) external view returns (uint256) {
+    ) external view returns (uint256, uint256) {
         if (_token != tokenA && _token != tokenB) {
             revert InvalidToken();
         }
@@ -47,12 +48,34 @@ contract LiquidityPool is ILiquidityPool {
 
         uint256 ratio = (aLiquidity * 1e18) / bLiquidity;
         uint256 next_ratio;
+        uint256 swapRate;
+        uint256 slippage;
+        uint256 expected_amount_out = (ratio * _amount) / 1e18;
         if (_token == tokenA) {
-            next_ratio = ((aLiquidity - _amount) * 1e18) / bLiquidity;
+            if (expected_amount_out > bLiquidity) {
+                revert InsuffisantLiquidity();
+            }
+            next_ratio =
+                ((aLiquidity + _amount) * 1e18) /
+                (bLiquidity - expected_amount_out);
+            swapRate = (next_ratio - ratio) / 2 + ratio;
+            slippage = ((swapRate - ratio) * 1e18) / ratio;
         } else {
-            next_ratio = ((bLiquidity - _amount) * 1e18) / aLiquidity;
+            if (expected_amount_out > aLiquidity) {
+                revert InsuffisantLiquidity();
+            }
+            next_ratio =
+                ((aLiquidity - expected_amount_out) * 1e18) /
+                (bLiquidity + _amount);
+            swapRate = (ratio - next_ratio) / 2 + next_ratio;
+            slippage = ((ratio - swapRate) * 1e18) / ratio;
         }
-        return (ratio - next_ratio) / 2 + next_ratio;
+        // console.log("ratio: %s", (ratio * 100) / 1e18);
+        // console.log("nextratio: %s", (next_ratio * 100) / 1e18);
+        // console.log("swapRate: %s", (swapRate * 100) / 1e18);
+        // console.log("slippage: %s", (slippage * 100) / 1e18);
+        // console.log("--------------------");
+        return (swapRate, slippage);
     }
 
     function getLiquidity(
@@ -86,20 +109,21 @@ contract LiquidityPool is ILiquidityPool {
             revert InvalidToken();
         }
 
-        uint256 swapRate = this.rate(_fromToken, _amountIn);
-        if (swapRate > _slippageTolerance) {
+        (uint256 swapRate, uint256 slippage) = this.rate(_fromToken, _amountIn);
+        if (slippage > _slippageTolerance) {
             revert SlippageTooHigh();
         }
 
+        IERC20(_fromToken).transferFrom(msg.sender, address(this), _amountIn);
         uint256 amountOut;
         if (_fromToken == tokenA) {
-            amountOut = (_amountIn * swapRate) / 1e18;
+            amountOut = (_amountIn * 1e18) / swapRate;
             aLiquidity += _amountIn;
             bLiquidity -= amountOut;
 
             IERC20(tokenB).transfer(msg.sender, amountOut);
         } else {
-            amountOut = (_amountIn * 1e18) / swapRate;
+            amountOut = (_amountIn * swapRate) / 1e18;
             aLiquidity -= amountOut;
             bLiquidity += _amountIn;
 
