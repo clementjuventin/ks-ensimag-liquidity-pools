@@ -69,11 +69,6 @@ contract LiquidityPool is ILiquidityPool {
             swapRate = (ratio - next_ratio) / 2 + next_ratio;
             slippage = ((ratio - swapRate) * 1e18) / ratio;
         }
-        // console.log("ratio: %s", (ratio * 100) / 1e18);
-        // console.log("nextratio: %s", (next_ratio * 100) / 1e18);
-        // console.log("swapRate: %s", (swapRate * 100) / 1e18);
-        // console.log("slippage: %s", (slippage * 100) / 1e18);
-        // console.log("--------------------");
         return (swapRate, slippage);
     }
 
